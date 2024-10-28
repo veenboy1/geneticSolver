@@ -7,30 +7,13 @@ from collections import defaultdict
 
 
 # ---------- Fitness function creation ---------- #
-# Creating a subgraph from the chromosome
-def create_subgraph_from_chromosome(G, chromosome, verbose=False):
-    # Create a new directed graph for the subgraph
-    subgraph = nx.DiGraph()
-    subgraph.add_nodes_from(G.nodes())
-
-    # Iterate through the edges of the original graph along with the chromosome values
-    for i, (u, v, data) in enumerate(G.edges(data=True)):
-        # If the corresponding chromosome value is 1, add the edge to the subgraph
-        if chromosome[i] == 1:
-            subgraph.add_edge(u, v, **data)
-            if verbose:
-                print(f'Edge {i}: ({u}, {v}) {data}')
-
-    return subgraph
-
-
 # Fitness function for directed graphs (with testing and debugging)
 def fitness(chromosome, G, demand, verbose=False, subgraph_name=None):
     # creating some variables
     F = 0
 
     # generate the subgraph
-    subgraph = create_subgraph_from_chromosome(G, chromosome, verbose=verbose)
+    subgraph = nf.create_subgraph_from_chromosome(G, chromosome, verbose=verbose)
 
     # function f(G_s)
     xf = sum(data[p.cost_attribute] for u, v, data in subgraph.edges(data=True))
@@ -38,6 +21,7 @@ def fitness(chromosome, G, demand, verbose=False, subgraph_name=None):
 
     if verbose:
         print(f'Sum cost of this subgraph: {xf}')
+        print(f'Demand array: \n{demand}')
 
     # calculating the value of some variables
     d_s = 0
@@ -46,18 +30,24 @@ def fitness(chromosome, G, demand, verbose=False, subgraph_name=None):
 
     for i in range(len(demand)):
         o, d = demand[i]  # Extract origin and destination from array
+        if verbose:
+            print(f'Currently testing pair ({o}, {d})')
         try:
             # This try/except block will detect if every (o, d) pair is connected.
-            # Each failure adds to the d_s (num of disconnections) AND the c_s1/c_s2.
-            sp_dist_s = nx.shortest_path_length(subgraph, o, d)
-            sp_dist = nx.shortest_path_length(G, o, d)
+            # Each exception adds to the d_s (num of disconnections) AND the c_s1/c_s2.
+            # l1 = nx.shortest_path_length(subgraph, o, d)
+            # l2 = nx.shortest_path_length(G, o, d)
+
+            l1 = nx.shortest_path_length(subgraph, source=o, target=d, weight=p.cost_attribute, method='dijkstra')
+            l2 = nx.shortest_path_length(G, source=o, target=d, weight=p.cost_attribute, method='dijkstra')
+
             # TODO: ask Mike or someone who knows better if this should be continuous or discrete
-            if sp_dist - sp_dist_s > p.gamma_abs + .001:
+            if l1 - l2 > p.gamma_abs:  # + .001:
                 # determines if the B7 constraint is violated
                 if verbose:
                     print('Failed B7')
                 c_s2 += 1
-            if sp_dist_s / sp_dist > p.gamma_rel - .001:
+            if l1 > l2 * p.gamma_rel:  # - .001:
                 # determines if B6 constraint is violated
                 if verbose:
                     print('Failed B6')
@@ -98,6 +88,50 @@ def fitness(chromosome, G, demand, verbose=False, subgraph_name=None):
 # Fitness function for PyGAD implementation
 def slim_fit(ga_instance, chromosome, chromosome_idx):
     return float(fitness(chromosome, nf.G, p.speedy_demand))
+
+
+# Slimmed down fitness function, hopefully faster
+def fitness_opt(ga_instance, chromosome, chromosome_idx):
+    G=nf.G
+    demand=p.speedy_demand
+
+    # Initialize variables
+    d_s = c_s1 = c_s2 = 0
+
+    # Generate the subgraph from the chromosome
+    subgraph = nf.create_subgraph_from_chromosome(G, chromosome, verbose=False)
+
+    # Compute f(G_s)
+    xf = sum(data[p.cost_attribute] for _, _, data in subgraph.edges(data=True))
+    f = math.exp(-p.sigma_f * xf)
+
+    # Iterate through demand pairs and compute path lengths
+    for o, d in demand:
+        try:
+            l1 = nx.shortest_path_length(subgraph, source=o, target=d, weight=p.cost_attribute, method='dijkstra')
+            l2 = nx.shortest_path_length(G, source=o, target=d, weight=p.cost_attribute, method='dijkstra')
+
+            # Check constraints B6 and B7
+            if l1 - l2 > p.gamma_abs:
+                c_s2 += 1
+            if l1 > l2 * p.gamma_rel:
+                c_s1 += 1
+
+        except nx.exception.NetworkXNoPath:
+            d_s += 1
+            c_s1 += 1
+            c_s2 += 1
+
+    # Compute g(d_s)
+    g = math.exp(-p.sigma_g * d_s)
+
+    # Compute h(c_s1, c_s2)
+    h = 0.5 * (math.exp(-p.sigma_h1 * c_s1) + math.exp(-p.sigma_h2 * c_s2))
+
+    # Calculate the final fitness score F
+    F = f + g + h
+
+    return float(F)
 
 
 # ---------- Creating the initial population ---------- #
@@ -215,6 +249,7 @@ def generate_initial_population(G, demand, idea=None):
         sp_chromosome = create_chromosome_from_shortest_paths(G, demand)
         gene_pool += initial_population_mutation(sp_chromosome, p.num_copies_each_type)
         gene_pool += create_greedy_chromosomes(G, demand, p.num_copies_each_type)
+        print(f'initial population size: {len(gene_pool)}')
     else:
         gene_pool = [whole_chromosome(G),
                      create_chromosome_from_shortest_paths(G, demand)]

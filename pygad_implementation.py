@@ -3,6 +3,7 @@ import genetic_functions as gf
 import parameters as p
 import pygad
 from numpy import array
+from networkx import write_edgelist
 
 # some global variables
 same_fitness_counter = 0
@@ -48,7 +49,7 @@ def run_all():
     ga_instance = pygad.GA(
         num_generations=p.num_generations,          # Number of generations to evolve
         num_parents_mating=4,                       # Number of parents for mating
-        fitness_func=gf.slim_fit,                   # Fitness function
+        fitness_func=gf.fitness_opt,                # Fitness function
         num_genes=num_genes,                        # Number of genes per chromosome
         initial_population=initial_population,      # Initial population
         mutation_percent_genes=p.mutation_rate,     # Mutation percentage
@@ -74,20 +75,21 @@ def run_all():
 
     gf.fitness(solution, G, p.speedy_demand, True, 'Best solution')
 
-    G_s = nf.report_results(solution, 'sioux falls')
+    G_s = nf.report_results(solution, p.location)
 
     return G_s
 
 
-def run_more():
+def run_and_prune():
     # First run the GA to get initial solution
     G_s = run_all()
     print('Initial Genetic Run complete\nTrimming useless edges now.')
 
     # Prune all edges not included in the shortest path for any demand pair
-    nf.prune_dead_branches(G_s, p.speedy_demand)
+    G_s2 = nf.prune_dead_branches(G_s, p.speedy_demand)
 
+    if input('Would you like to save this graph? y/n') == 'y':
+        write_edgelist(G_s2, 'best_solution_graph')
 
-
-
-
+    if input('Test this graph for feasibility y/n') == 'y':
+        nf.verify_solution(nf.G, G_s2, p.speedy_demand)

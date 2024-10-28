@@ -3,7 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import geopandas as gpd
 import parameters as p
-from genetic_functions import create_subgraph_from_chromosome
+import numpy as np
+
 
 # ---------- Load network data ---------- #
 def read_node_pos_geojson(file_name, verbose=False):
@@ -120,8 +121,51 @@ def create_sioux_falls(draw_net=False, num_of_drawings=1):
 
     return G
 
+# ---------- Creating the Tao array ---------- #
+# This makes it possible to store all shortest path lengths.
+# Hopefully this makes it a little faster.
+def create_tao(network1, demand=None, weight='Length ', verbose=False):
+    """
+    Creates the parameter tao, which is the shortest path between an origin and destination
+    from the dictionary demand. It is stored into a gurobi tupledict.
+    :param network1: networkx DiGraph of the whole network
+    :param demand: dictionary of demand denoting all paths in the scenario, default is None
+    :param weight: weight for each edge, defaults to 'w', which I used in my test graph
+    :param verbose: bool, if True prints (possibly excessive) debugging information
+    :return: tao as a tupledict
+    """
+    n, m = demand.shape
+    tao = np.zeros((n, m+1))
+
+    for i in range(n):
+        o, d= demand[i]
+        path_length = nx.shortest_path_length(network1, o, d, weight)
+        tao[i] = [o, d, path_length]
+
+    if verbose:
+        print('These are the shortest path lengths for all demand pairs')
+        print(tao)
+
+    return tao
+
 
 # ---------- Reporting the results of the GA run ---------- #
+def create_subgraph_from_chromosome(G, chromosome, verbose=False):
+    # Create a new directed graph for the subgraph
+    subgraph = nx.DiGraph()
+    subgraph.add_nodes_from(G.nodes())
+
+    # Iterate through the edges of the original graph along with the chromosome values
+    for i, (u, v, data) in enumerate(G.edges(data=True)):
+        # If the corresponding chromosome value is 1, add the edge to the subgraph
+        if chromosome[i] == 1:
+            subgraph.add_edge(u, v, **data)
+            if verbose:
+                print(f'Edge {i}: ({u}, {v}) {data}')
+
+    return subgraph
+
+
 def read_node_pos(file_name, verbose=False):
     df = pd.read_csv(file_name, sep='\t')
     if verbose:
@@ -135,7 +179,7 @@ def read_node_pos(file_name, verbose=False):
     return nodes_position_dict
 
 
-def report_results(best_solution, location=None, graph=None, title='Geoff is the best'):
+def report_results(best_solution, location=None, graph=None, title='No name specified'):
     if graph is None:
         network1 = create_subgraph_from_chromosome(G, best_solution, True)
     else:
@@ -153,6 +197,8 @@ def report_results(best_solution, location=None, graph=None, title='Geoff is the
         nx.draw_networkx_edges(network1, pos=positions, edge_color='red', alpha=0.9)
     elif location == 'sioux falls':
         positions = read_node_pos(p.sf_node_file)
+    elif location == 'Anaheim':
+        positions = read_node_pos_geojson(p.ana_node_file)
     else:
         print('No positions available for this location (Geoff didn\'t do it yet)')
         positions = None
@@ -168,6 +214,18 @@ def report_results(best_solution, location=None, graph=None, title='Geoff is the
         nx.draw_networkx_nodes(network1, pos=positions, node_size=45, node_color=node_colors)
         nx.draw_networkx_labels(network1, pos=positions, font_size=10, font_color="black")
         nx.draw_networkx_edges(network1, pos=positions, edge_color='red', alpha=0.9)
+
+        # TODO: Make this actually print the edge weights...
+        # I think the problem is that the postions are not actually doing what
+        # they are supposed to do. I think I need different positions for the
+        # edge lengths or something
+        if p.display_edge_weights:
+            edge_labels = nx.get_edge_attributes(network1, 'length')
+
+            # Format edge labels to show only two decimal places
+            edge_labels = {(u, v): f"{length:.2f}" for (u, v), length in edge_labels.items()}
+
+            nx.draw_networkx_edge_labels(network1, pos=positions, edge_labels=edge_labels, font_size=8)
 
         # additional things for the plot
         plt.title(str(title))
@@ -208,7 +266,7 @@ def prune_dead_branches(G, pairs):
         if edge not in shortest_path_edges:
             pruned_graph.remove_edge(*edge)
 
-    report_results(None, location='sioux falls', graph=pruned_graph, title='Pruned Graph')
+    report_results(None, location=p.location, graph=pruned_graph, title='Pruned Graph')
 
     # Display pruned solution
     xf = sum(data[p.cost_attribute] for u, v, data in pruned_graph.edges(data=True))
@@ -222,6 +280,37 @@ def prune_dead_branches(G, pairs):
     print("=" * 40 + "\n")
 
     return pruned_graph
+
+
+def verify_solution(G, G_s, pairs):
+    count_of_disconnected = []
+    violations = []
+
+    for o, d in pairs:
+        try:
+            l1 = nx.shortest_path_length(G_s, source=o, target=d, weight=p.cost_attribute, method='dijkstra')
+            print(f'Shortest Path for ({o}, {d}) found successfully')
+            l2 = nx.shortest_path_length(G, source=o, target=d, weight=p.cost_attribute, method='dijkstra')
+
+            if l1 - l2 > p.gamma_abs:
+                violations.append((o, d, 'B7'))
+                print(f'B7 Violated by ({o}, {d})')
+
+            if l1 > l2 * p.gamma_rel:
+                violations.append((o, d, 'B6'))
+                print(f'B6 Violated by ({o}, {d})')
+
+        except nx.NetworkXNoPath:
+            count_of_disconnected.append((o, d, 'No connection found'))
+            print(f'Shortest Path for ({o}, {d} not found successfully')
+
+    print('Summary of results:')
+    print('Disconnected results:')
+    print(count_of_disconnected)
+    print('Constraint violations:')
+    print(violations)
+
+    return count_of_disconnected, violations
 
 
 # Graph variable

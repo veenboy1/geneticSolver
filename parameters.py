@@ -2,8 +2,15 @@ from numpy import array
 from itertools import product
 # Parameters for the Genetic Algorithm
 
+# ----------- Things you must change to change location ----------- #
+# Change the G variable in network_functions
+# Change the cost_attribute below
+# Change the location parameter below (Anaheim, sioux falls)
+
+location = 'Anaheim'
+
 population_size = 40  # Number of chromosomes in the population
-cost_attribute = 'Length '  # 'length'  # Edge attribute to use for calculating cost
+cost_attribute = 'length'  # 'Length '  # Edge attribute to use for calculating cost
 
 # ----------- Network File Paths ----------- #
 ana_node_file = './Anaheim/anaheim_nodes.geojson'
@@ -12,12 +19,13 @@ sf_net_file = './SiouxFalls/SiouxFalls_net.txt'
 sf_node_file = './SiouxFalls/SiouxFalls_node.txt'
 
 # ----------- Other non-essential parameters ----------- #
-fig_size = (10, 10)
+fig_size = (20, 20)
 dpi = 200
 grid_size = 5
+display_edge_weights = False
 
 # ----------- Fitness function constants ----------- #
-sigma_f = .05       # for test net, .25 works well
+sigma_f = .1       # for test net, .25 works well; .05 for Sioux Falls
 sigma_g = .25
 sigma_h1 = .25
 sigma_h2 = .25
@@ -34,8 +42,8 @@ def create_many_to_many_demand(origins, destinations, demand=100):
     return {(a, b): demand for a, b in product(origins, destinations) if not (a == b)}
 
 
-origins = [i for i in range(1, 25)]
-destinations = [i for i in range(1, 25)]
+origins = [1, 35]
+destinations = [4, 7]
 dummy_demand = create_many_to_many_demand(origins, destinations)
 
 speedy_demand = array(list(dummy_demand.keys()))
