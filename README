@@ -1,0 +1,9 @@
+# The Genetic Solver Idea!
+
+## Code Structure
+
+The main.py file will run a couple functions contained in the pygad_implementation.py file. This calls functions from the genetic_functions.py and network_functions.py files. These all work together to run a genetic algorithm on the math program detailed in the draft_work.pdf file. parameters.py contains all the different options that you can choose to adjust the behavior of the algorithm.
+
+One thing that I know isn't optimized right now is the fitness function, fitness_opt() in genetic_functions. This takes way too long for a particular genotype to test, but I'm not really sure how to get it working better.
+
+Testing this out.
